@@ -591,7 +591,7 @@
           </span>
         </a>
 
-        <a class="project-card" href="/writeups" onclick="navigate('writeups'); return false;">
+        <a class="project-card" href="/#writeups" onclick="navigate('writeups'); return false;">
           <svg class="project-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
           <div class="project-name">Technical Writeups</div>
           <div class="project-desc">CTF writeups on binary exploitation</div>
@@ -907,53 +907,40 @@
       navigate('note-view');
     }
 
-    function navigate(page) {
-      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-      document.getElementById(page).classList.add('active');
-      
-      if (page === 'home') {
-        history.pushState(null, '', '/');
-      } else if (page === 'writeups') {
-        history.pushState(null, '', '/writeups');
-      } else if (page === 'posts') {
-        history.pushState(null, '', '/posts');
-      } else if (page === 'notes') {
-        history.pushState(null, '', '/notes');
-      } else if (page === 'projects') {
-        history.pushState(null, '', '/projects');
-      }
-    }
-
     
-    window.addEventListener('popstate', () => {
-        const path = location.pathname.replace(/^\/|\/$/g, '');
-    
-        const page = ['writeups', 'posts', 'notes', 'projects']
-            .includes(path) ? path : 'home';
-    
-        document.querySelectorAll('.page').forEach(p => {
-            p.classList.remove('active');
-        });
-    
-        document.getElementById(page).classList.add('active');
+function navigate(page) {
+    document.querySelectorAll('.page').forEach(p => {
+        p.classList.remove('active');
     });
 
+    document.getElementById(page).classList.add('active');
 
-    loadContent().then(() => {
-    const requestedPage = new URLSearchParams(
-        window.location.search
-    ).get('page');
+    const routes = ['home', 'writeups', 'posts', 'notes', 'projects'];
 
-    if (requestedPage === 'writeups') {
-        document.querySelectorAll('.page').forEach(p => {
-            p.classList.remove('active');
-        });
-
-        document.getElementById('writeups').classList.add('active');
-
-        history.replaceState(null, '', '/writeups');
+    if (routes.includes(page)) {
+        const url = page === 'home' ? '/' : '/#' + page;
+        history.pushState(null, '', url);
     }
+}
+
+function restorePage() {
+    const page = window.location.hash.substring(1) || 'home';
+
+    document.querySelectorAll('.page').forEach(p => {
+        p.classList.remove('active');
     });
+
+    const target = document.getElementById(page)
+        || document.getElementById('home');
+
+    target.classList.add('active');
+}
+
+window.addEventListener('popstate', restorePage);
+window.addEventListener('hashchange', restorePage);
+
+loadContent().then(restorePage);
+
   </script>
 </body>
 </html>
