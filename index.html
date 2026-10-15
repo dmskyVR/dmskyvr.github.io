@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
+  <base href="/">
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Terminal</title>
@@ -923,22 +924,36 @@
       }
     }
 
+    
     window.addEventListener('popstate', () => {
-      const path = location.pathname;
-      if (path === '/' || path === '') {
-        navigate('home');
-      } else if (path === '/writeups') {
-        navigate('writeups');
-      } else if (path === '/posts') {
-        navigate('posts');
-      } else if (path === '/notes') {
-        navigate('notes');
-      } else if (path === '/projects') {
-        navigate('projects');
-      }
+        const path = location.pathname.replace(/^\/|\/$/g, '');
+    
+        const page = ['writeups', 'posts', 'notes', 'projects']
+            .includes(path) ? path : 'home';
+    
+        document.querySelectorAll('.page').forEach(p => {
+            p.classList.remove('active');
+        });
+    
+        document.getElementById(page).classList.add('active');
     });
 
-    loadContent();
+
+    loadContent().then(() => {
+    const requestedPage = new URLSearchParams(
+        window.location.search
+    ).get('page');
+
+    if (requestedPage === 'writeups') {
+        document.querySelectorAll('.page').forEach(p => {
+            p.classList.remove('active');
+        });
+
+        document.getElementById('writeups').classList.add('active');
+
+        history.replaceState(null, '', '/writeups');
+    }
+    });
   </script>
 </body>
 </html>
