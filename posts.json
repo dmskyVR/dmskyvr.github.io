@@ -1,8 +1,14 @@
 [
   {
+    "title": "Getting Into Embedded Systems",
+    "description": "Why I'm shifting my focus from binary exploitation toward embedded programming.",
+    "url": "posts/getting-into-embedded-systems.md",
+    "date": "2026-10-20T12:00:00"
+  },
+  {
     "title": "Welcome",
     "description": "My first post - thank you for visiting!",
     "url": "posts/welcome.html",
-    "date": "2026-01-23"
+    "date": "2026-01-23T12:00:00"
   }
 ]
